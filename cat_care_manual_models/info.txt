@@ -1,0 +1,6 @@
+PDF: dokumen.pub_complete-cat-care-manual-the-essential-practical-guide-to-all-aspects-of-caring-for-your-cat-illustrated-0756617421-9780756617424.pdf
+Chunks: 707
+Embedding dim: 384
+Model: all-MiniLM-L6-v2
+Chunk size: ~500 chars + 80 overlap
+Extraction: PyMuPDF
