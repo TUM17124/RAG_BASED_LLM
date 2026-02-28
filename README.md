@@ -47,8 +47,8 @@ cd RAG_BASED_LLM
 
 2. Create virtual environment
 
-Bashpython -m venv venv
-source venv/bin/activate    # Windows: venv\Scripts\activate
+python -m venv venv
+venv/bin/activate    # Windows: venv\Scripts\activate
 
 3. Install dependencies
 
