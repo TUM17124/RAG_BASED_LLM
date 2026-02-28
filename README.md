@@ -21,3 +21,35 @@ It uses **Sentence Transformers** for embeddings, **FAISS** for fast similarity 
 - **Other**: numpy, torch, pydantic
 
 ## Project Structure
+cat-care-assistant/
+├
+│── api.py                  ← FastAPI server (production code, no Jupyter needed)
+│── requirements.txt
+│── models/                 ← Trained artifacts
+│── vector_store/           ← FAISS + chunks.pkl (persistent knowledge base)
+│
+├── chatbot_ui/
+│   ├── lib/
+│   │   └── chat_screen.dart    ← Flutter UI + API calls (no Jupyter here)
+│   └── pubspec.yaml
+│
+├── data/ (optional)
+│   ├── pdfs/                   ← Raw documents
+│   └── ingestion.ipynb         ← ONLY used during development to create vector_store
+
+
+1. Installation & Setup
+
+Clone / download the project
+
+git clone <https://github.com/TUM17124/RAG_BASED_LLM>
+cd RAG_BASED_LLM
+
+2. Create virtual environment
+
+Bashpython -m venv venv
+source venv/bin/activate    # Windows: venv\Scripts\activate
+
+3. Install dependencies
+
+pip install -r requirements.txt
