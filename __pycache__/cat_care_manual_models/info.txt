@@ -1,0 +1,6 @@
+PDF: Text-to-PDF-S9L.pdf
+Chunks: 717
+Embedding dim: 384
+Model: all-MiniLM-L6-v2
+Chunk size: ~500 chars + 80 overlap
+Extraction: PyMuPDF

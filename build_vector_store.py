@@ -1,82 +1,91 @@
-import os
-import pickle
-import faiss
+# build_vector_store.py
+import fitz
+import re
 import numpy as np
-from tqdm import tqdm
+import faiss
 from sentence_transformers import SentenceTransformer
-import torch
+from tqdm import tqdm
+import pickle
+import os
 
-# ────────────── Configuration ──────────────
-DATA_FOLDER    = "data"                  # folder containing your .txt files
-VECTOR_STORE   = "vector_store"          # where to save index + chunks
-CHUNK_SIZE     = 350                     # words per chunk — better balance than 200
-OVERLAP        = 50                      # words of overlap between chunks (recommended!)
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"     # good choice for speed + quality
+# ────────────────────────────────────────────────
+# CONFIG (match your FastAPI)
+# ────────────────────────────────────────────────
 
-# Optional: use GPU if available (big speedup on >1000 chunks)
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {DEVICE}")
+PDF_PATHS = [
+    r"C:\Users\user\Downloads\dokumen.pub_complete-cat-care-manual-the-essential-practical-guide-to-all-aspects-of-caring-for-your-cat-illustrated-0756617421-9780756617424.pdf",
+    r"C:\Users\user\Downloads\Text-to-PDF-S9L.pdf",
+    # add more PDFs here
+]
 
-# ────────────── Load model once ──────────────
-print("Loading embedding model...")
-embed_model = SentenceTransformer(EMBEDDING_MODEL, device=DEVICE)
-print("Model loaded ✅")
+SAVE_DIR = r"C:\Users\user\ML_Projects\RAG_BASED_LLM\vector_store"
+EMBED_MODEL = "all-MiniLM-L6-v2"
+CHUNK_CHARS = 500
+OVERLAP = 80
 
-# ────────────── Load all documents ──────────────
-documents = []
-for filename in os.listdir(DATA_FOLDER):
-    if filename.lower().endswith(".txt"):
-        path = os.path.join(DATA_FOLDER, filename)
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if content:
-                    documents.append(content)
-        except Exception as e:
-            print(f"Warning: Could not read {filename}: {e}")
+os.makedirs(SAVE_DIR, exist_ok=True)
 
-print(f"Loaded {len(documents)} valid documents.")
+# ────────────────────────────────────────────────
+# Text Cleaning & Chunking
+# ────────────────────────────────────────────────
 
-if not documents:
-    raise ValueError("No valid text files found in data folder.")
+def clean_text(text: str) -> str:
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'Page \d+( of \d+)?', '', text, flags=re.I)
+    text = re.sub(r'^\s*[\dIVXLCDM]+\s*$', '', text, flags=re.M)
+    return text.replace('•', ' - ').replace('', ' - ').strip()
 
-# ────────────── Improved chunking with overlap ──────────────
-def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP):
-    """
-    Split text into overlapping word-based chunks.
-    Overlap helps preserve context across chunk boundaries.
-    """
-    words = text.split()
-    if len(words) <= chunk_size:
-        return [" ".join(words)]
-
+def chunk_text(text: str, max_chars=CHUNK_CHARS, overlap=OVERLAP) -> list[str]:
     chunks = []
-    step = chunk_size - overlap
-    for i in range(0, len(words), step):
-        chunk_words = words[i : i + chunk_size]
-        chunks.append(" ".join(chunk_words))
+    n = len(text)
+    start = 0
+    step = max(1, max_chars - overlap)
+    while start < n:
+        end = min(start + max_chars, n)
+        chunk = text[start:end].strip()
+        if len(chunk) >= 60:
+            chunks.append(chunk)
+        start += step
     return chunks
 
+# ────────────────────────────────────────────────
+# MAIN INGESTION
+# ────────────────────────────────────────────────
 
-print("Chunking documents...")
-all_chunks = []
-for doc in tqdm(documents, desc="Chunking docs"):
-    all_chunks.extend(chunk_text(doc))
+print("Extracting text from PDFs...")
+full_text = ""
+for pdf_path in tqdm(PDF_PATHS):
+    doc = fitz.open(pdf_path)
+    for page in doc:
+        txt = page.get_text("text")
+        if txt.strip():
+            full_text += txt + "\n"
+    doc.close()
 
-print(f"Created {len(all_chunks):,} chunks")
+cleaned = clean_text(full_text)
+print(f"Cleaned text length: {len(cleaned):,} chars")
 
-# ────────────── Generate embeddings in batches ──────────────
+chunks = chunk_text(cleaned)
+print(f"Created {len(chunks):,} chunks")
+
+# ────────────────────────────────────────────────
+# Embed
+# ────────────────────────────────────────────────
+
+print("Loading embedding model...")
+embedder = SentenceTransformer(EMBED_MODEL)
+
 print("Generating embeddings...")
-BATCH_SIZE = 64  # adjust down to 32/16 if you get OOM
-
 embeddings_list = []
-for i in tqdm(range(0, len(all_chunks), BATCH_SIZE), desc="Embedding"):
-    batch = all_chunks[i : i + BATCH_SIZE]
-    batch_emb = embed_model.encode(
+for i in tqdm(range(0, len(chunks), 64)):
+    batch = chunks[i:i+64]
+    batch_emb = embedder.encode(
         batch,
         batch_size=len(batch),
         show_progress_bar=False,
-        normalize_embeddings=True,      # ← very important for better retrieval
+        normalize_embeddings=True,
         convert_to_numpy=True
     )
     embeddings_list.append(batch_emb)
@@ -84,28 +93,26 @@ for i in tqdm(range(0, len(all_chunks), BATCH_SIZE), desc="Embedding"):
 embeddings = np.vstack(embeddings_list).astype(np.float32)
 print(f"Embeddings shape: {embeddings.shape}")
 
-# ────────────── Build FAISS index (use Inner Product + normalized vectors) ──────────────
-dimension = embeddings.shape[1]
-index = faiss.IndexFlatIP(dimension)           # Inner Product — better with normalized vecs
+# ────────────────────────────────────────────────
+# FAISS — cosine similarity (IP after normalization)
+# ────────────────────────────────────────────────
+
+dim = embeddings.shape[1]
+index = faiss.IndexFlatIP(dim)
 index.add(embeddings)
 
 print(f"FAISS index built with {index.ntotal:,} vectors")
 
-# ────────────── Save everything ──────────────
-os.makedirs(VECTOR_STORE, exist_ok=True)
+# ────────────────────────────────────────────────
+# Save
+# ────────────────────────────────────────────────
 
-# Save FAISS index
-faiss.write_index(index, os.path.join(VECTOR_STORE, "index.faiss"))
+faiss.write_index(index, os.path.join(SAVE_DIR, "index.faiss"))
 
-# Save chunks as pickle (matches your FastAPI code)
-with open(os.path.join(VECTOR_STORE, "chunks.pkl"), "wb") as f:
-    pickle.dump(all_chunks, f)
+with open(os.path.join(SAVE_DIR, "chunks.pkl"), "wb") as f:
+    pickle.dump(chunks, f)
 
-# Optional: also save a simple text version for debugging
-with open(os.path.join(VECTOR_STORE, "chunks_debug.txt"), "w", encoding="utf-8") as f:
-    for i, chunk in enumerate(all_chunks, 1):
-        f.write(f"─── Chunk {i} ({len(chunk.split())} words) ───\n")
-        f.write(chunk + "\n\n")
-
-print(f"Vector store saved to: {os.path.abspath(VECTOR_STORE)}")
-print("Done! You can now use this with your FastAPI RAG endpoint.")
+print(f"\nSaved to {SAVE_DIR}:")
+print(" - index.faiss")
+print(" - chunks.pkl")
+print("Done! Ready for FastAPI.")
