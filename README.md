@@ -21,7 +21,7 @@ It uses **Sentence Transformers** for embeddings, **FAISS** for fast similarity 
 - **Other**: numpy, torch, pydantic
 
 ## Project Structure
-cat-care-assistant/
+RAG_BASED_LLM/
 ├
 │── api.py                  ← FastAPI server (production code, no Jupyter needed)
 │── requirements.txt
