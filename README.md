@@ -33,9 +33,9 @@ cat-care-assistant/
 │   │   └── chat_screen.dart    ← Flutter UI + API calls (no Jupyter here)
 │   └── pubspec.yaml
 │
-├── data/ (optional)
-│   ├── pdfs/                   ← Raw documents
-│   └── ingestion.ipynb         ← ONLY used during development to create vector_store
+├
+│                     
+│──── cat_care.ipynb         ← ONLY used during development to create vector_store and dl models
 
 
 1. Installation & Setup
